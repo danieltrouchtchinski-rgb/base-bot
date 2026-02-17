@@ -107,39 +107,43 @@ client.on("interactionCreate", async interaction => {
     if (!interaction.isButton()) return;
 
     // --- OUVERTURE DU TICKET ---
-    if (interaction.customId === "open_ticket") {
-        const guild = interaction.guild;
+   // --- OUVERTURE DU TICKET ---
+if (interaction.customId === "open_ticket") {
+    const guild = interaction.guild;
 
-        const ticketChannel = await guild.channels.create({
-            name: `ticket-${interaction.user.username}`,
-            type: 0,
-            permissionOverwrites: [
-                {
-                    id: guild.id,
-                    deny: [PermissionsBitField.Flags.ViewChannel]
-                },
-                {
-                    id: interaction.user.id,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.SendMessages,
-                        PermissionsBitField.Flags.ReadMessageHistory
-                    ]
-                },
-                {
-                    id: staffRoleId,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.SendMessages,
-                        PermissionsBitField.Flags.ReadMessageHistory
-                    ]
-                }
-            ]
-        });
-        // Notification simple dans un salon
-        const logChannel = client.channels.cache.get("1472545749576192010");
-        if (logChannel) logChannel.send(`${interaction.user.username} a ouvert un ticket.`);
-        
+    const ticketChannel = await guild.channels.create({
+        name: `ticket-${interaction.user.username}`,
+        type: 0,
+        permissionOverwrites: [
+            {
+                id: guild.id,
+                deny: [PermissionsBitField.Flags.ViewChannel]
+            },
+            {
+                id: interaction.user.id,
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel,
+                    PermissionsBitField.Flags.SendMessages,
+                    PermissionsBitField.Flags.ReadMessageHistory
+                ]
+            },
+            {
+                id: staffRoleId,
+                allow: [
+                    PermissionsBitField.Flags.ViewChannel,
+                    PermissionsBitField.Flags.SendMessages,
+                    PermissionsBitField.Flags.ReadMessageHistory
+                ]
+            }
+        ]
+    });
+
+    // 🔔 NOTIFICATION PRIVÉE À TON COMPTE ADMIN
+    const adminId = "TON_ID_ICI"; // <-- Mets ton ID ici
+    const adminUser = await client.users.fetch(adminId);
+    adminUser.send(`${interaction.user.username} a ouvert un ticket.`);
+
+    
         const closeRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId("close_ticket")
