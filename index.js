@@ -136,7 +136,10 @@ client.on("interactionCreate", async interaction => {
                 }
             ]
         });
-
+        // Notification simple dans un salon
+        const logChannel = client.channels.cache.get("1472545749576192010");
+        if (logChannel) logChannel.send(`${interaction.user.username} a ouvert un ticket.`);
+        
         const closeRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId("close_ticket")
