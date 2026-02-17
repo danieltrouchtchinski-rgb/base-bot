@@ -139,7 +139,7 @@ if (interaction.customId === "open_ticket") {
     });
 
     // 🔔 NOTIFICATION PRIVÉE À TON COMPTE ADMIN
-    const adminId = "TON_ID_ICI"; // <-- Mets ton ID ici
+    const adminId = "1238123426959462432"; 
     const adminUser = await client.users.fetch(adminId);
     adminUser.send(`${interaction.user.username} a ouvert un ticket.`);
 
