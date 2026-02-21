@@ -53,7 +53,7 @@ const COOLDOWN_TIME = 60 * 60 * 1000; // 1 heure
 // MODÉRATION : GROS MOTS & AVERTISSEMENTS
 // -----------------------------
 
-// Liste de base (pour la censure dans le message)
+// Liste de base pour la censure (tu peux en ajouter)
 const bannedWords = [
     "pute",
     "fdp",
@@ -63,7 +63,7 @@ const bannedWords = [
     "salope"
 ];
 
-// Motifs stricts (détectent variantes, espaces, symboles, chiffres, etc.)
+// Motifs stricts (variantes, espaces, symboles, chiffres, etc.)
 const bannedPatterns = [
     /p[\W_0-9]*u[\W_0-9]*t[\W_0-9]*e/i,
     /f[\W_0-9]*d[\W_0-9]*p/i,
@@ -80,7 +80,7 @@ const MAX_WARNINGS = 3;
 // Salon de logs pour le staff
 const logChannelId = "1474819277092552724";
 
-// Normalisation stricte pour la détection (leet, accents, symboles)
+// Normalisation stricte (leet, accents, symboles)
 function normalizeForFilter(text) {
     let t = text.toLowerCase();
 
@@ -102,7 +102,6 @@ function normalizeForFilter(text) {
         .map(ch => leetMap[ch] || ch)
         .join("");
 
-    // enlever tout ce qui n'est pas lettre
     t = t.replace(/[^a-zàâäéèêëîïôöùûüç]/g, "");
 
     return t;
@@ -170,7 +169,6 @@ client.on("interactionCreate", async interaction => {
         const userId = interaction.user.id;
         const now = Date.now();
 
-        // Vérification du cooldown
         if (ticketCooldown.has(userId)) {
             const lastTime = ticketCooldown.get(userId);
             const timePassed = now - lastTime;
@@ -185,7 +183,6 @@ client.on("interactionCreate", async interaction => {
             }
         }
 
-        // Mise à jour du cooldown
         ticketCooldown.set(userId, now);
 
         const guild = interaction.guild;
@@ -217,7 +214,6 @@ client.on("interactionCreate", async interaction => {
             ]
         });
 
-        // 🔔 NOTIFICATION PRIVÉE À L’ADMIN
         const adminUser = await client.users.fetch(adminId);
         adminUser.send(`${interaction.user.username} a ouvert un ticket.`).catch(() => {});
 
@@ -264,22 +260,22 @@ client.on("messageCreate", async (message) => {
 
     if (!hasBasic && !hasPattern) return;
 
-    // Censure : chaque mot interdit devient ***
+    // CENSURE : chaque mot interdit devient ***
     let censoredContent = originalContent;
     for (const word of bannedWords) {
         const regex = new RegExp(word, "gi");
         censoredContent = censoredContent.replace(regex, "***");
     }
 
-    // Édite le message avec la version censurée
-    if (censoredContent !== originalContent) {
-        message.edit(censoredContent).catch(() => {});
-    }
+    // SUPPRIMER le message original
+    await message.delete().catch(() => {});
+
+    // REPUBLIER la version censurée
+    await message.channel.send(`💬 **Message censuré de ${message.author}:**\n${censoredContent}`);
 
     const userId = message.author.id;
     const guild = message.guild;
 
-    // Incrémente les avertissements
     const current = warnings.get(userId) || 0;
     const newCount = current + 1;
     warnings.set(userId, newCount);
@@ -295,7 +291,7 @@ client.on("messageCreate", async (message) => {
                     fields: [
                         {
                             name: "Message censuré",
-                            value: censoredContent ? `\`${censoredContent}\`` : "*Message vide ou non lisible*"
+                            value: `\`${censoredContent}\``
                         },
                         {
                             name: "Rappel",
@@ -313,11 +309,10 @@ client.on("messageCreate", async (message) => {
         console.log("Impossible d'envoyer un DM à l'utilisateur.");
     }
 
-    // Si 3 avertissements → sanction
+    // SANCTION AUTOMATIQUE
     if (newCount >= MAX_WARNINGS) {
         const logChannel = guild.channels.cache.get(logChannelId);
 
-        // DM final
         try {
             await message.author.send({
                 embeds: [
@@ -332,13 +327,12 @@ client.on("messageCreate", async (message) => {
             });
         } catch {}
 
-        // Message au staff
         if (logChannel) {
             logChannel.send({
                 embeds: [
                     {
                         title: "🔨 Sanction appliquée",
-                        description: `${message.author} a atteint **${MAX_WARNINGS} avertissements** et a été banni automatiquement.`,
+                        description: `${message.author} a été banni automatiquement après ${MAX_WARNINGS} avertissements.`,
                         color: 0xff0000,
                         timestamp: new Date().toISOString()
                     }
@@ -346,7 +340,6 @@ client.on("messageCreate", async (message) => {
             }).catch(() => {});
         }
 
-        // Exclusion du serveur
         guild.members.ban(userId, { reason: "Trop d'avertissements automatiques (gros mots)" })
             .catch(() => console.log("Impossible de bannir l'utilisateur."));
     }
