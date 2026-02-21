@@ -8,7 +8,7 @@ const {
     PermissionsBitField
 } = require("discord.js");
 
-//  ANTI‑CRASH
+// ANTI‑CRASH
 process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:", reason));
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
 process.on("uncaughtExceptionMonitor", (err) => console.error("Uncaught Exception Monitor:", err));
@@ -53,7 +53,6 @@ const COOLDOWN_TIME = 60 * 60 * 1000; // 1 heure
 // MODÉRATION : GROS MOTS & AVERTISSEMENTS
 // -----------------------------
 
-// Liste de base pour la censure (tu peux en ajouter)
 const bannedWords = [
     "pute",
     "fdp",
@@ -63,7 +62,6 @@ const bannedWords = [
     "salope"
 ];
 
-// Motifs stricts (variantes, espaces, symboles, chiffres, etc.)
 const bannedPatterns = [
     /p[\W_0-9]*u[\W_0-9]*t[\W_0-9]*e/i,
     /f[\W_0-9]*d[\W_0-9]*p/i,
@@ -73,14 +71,12 @@ const bannedPatterns = [
     /s[\W_0-9]*a[\W_0-9]*l[\W_0-9]*o[\W_0-9]*p[\W_0-9]*e/i
 ];
 
-// userId -> nombre d'avertissements
 const warnings = new Map();
 const MAX_WARNINGS = 3;
 
-// Salon de logs pour le staff
 const logChannelId = "1474819277092552724";
 
-// Normalisation stricte (leet, accents, symboles)
+// Normalisation stricte
 function normalizeForFilter(text) {
     let t = text.toLowerCase();
 
@@ -114,14 +110,12 @@ function normalizeForFilter(text) {
 client.on("ready", async () => {
     console.log(`Bot connecté en tant que ${client.user.tag}`);
 
-    // Message de réaction 👍
     const channel = await client.channels.fetch(channelId);
     const msg = await channel.send(
         "Bienvenue sur le serveur. Pour confirmer continuer veuillez cliquer sur l’emoji 👍 ci‑dessous."
     );
     await msg.react(emoji);
 
-    // Bouton d'ouverture de ticket
     const supportChannel = await client.channels.fetch(supportChannelId);
 
     const row = new ActionRowBuilder().addComponents(
@@ -158,86 +152,152 @@ client.on("messageReactionAdd", async (reaction, user) => {
 });
 
 // -----------------------------
-// SYSTÈME DE TICKETS
+// SYSTÈME DE TICKETS + BOUTONS LOGS
 // -----------------------------
 
 client.on("interactionCreate", async interaction => {
-    if (!interaction.isButton()) return;
+    if (interaction.isButton()) {
+        const { customId } = interaction;
 
-    // --- OUVERTURE DU TICKET ---
-    if (interaction.customId === "open_ticket") {
-        const userId = interaction.user.id;
-        const now = Date.now();
+        // --- OUVERTURE DU TICKET ---
+        if (customId === "open_ticket") {
+            const userId = interaction.user.id;
+            const now = Date.now();
 
-        if (ticketCooldown.has(userId)) {
-            const lastTime = ticketCooldown.get(userId);
-            const timePassed = now - lastTime;
+            if (ticketCooldown.has(userId)) {
+                const lastTime = ticketCooldown.get(userId);
+                const timePassed = now - lastTime;
 
-            if (timePassed < COOLDOWN_TIME) {
-                const remaining = Math.ceil((COOLDOWN_TIME - timePassed) / 60000);
+                if (timePassed < COOLDOWN_TIME) {
+                    const remaining = Math.ceil((COOLDOWN_TIME - timePassed) / 60000);
 
+                    return interaction.reply({
+                        content: `⏳ Tu as déjà ouvert un ticket récemment. Tu pourras en rouvrir un dans **${remaining} minutes**.`,
+                        ephemeral: true
+                    });
+                }
+            }
+
+            ticketCooldown.set(userId, now);
+
+            const guild = interaction.guild;
+
+            const ticketChannel = await guild.channels.create({
+                name: `ticket-${interaction.user.username}`,
+                type: 0,
+                permissionOverwrites: [
+                    {
+                        id: guild.id,
+                        deny: [PermissionsBitField.Flags.ViewChannel]
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages,
+                            PermissionsBitField.Flags.ReadMessageHistory
+                        ]
+                    },
+                    {
+                        id: staffRoleId,
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages,
+                            PermissionsBitField.Flags.ReadMessageHistory
+                        ]
+                    }
+                ]
+            });
+
+            const adminUser = await client.users.fetch(adminId);
+            adminUser.send(`${interaction.user.username} a ouvert un ticket.`).catch(() => {});
+
+            const closeRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId("close_ticket")
+                    .setLabel("🔒 Fermer le ticket")
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await ticketChannel.send({
+                content: `🎟️ **Ticket ouvert !**\nBonjour ${interaction.user}, merci d’avoir ouvert un ticket.\nExplique ton problème ici, un membre du staff te répondra rapidement.`,
+                components: [closeRow]
+            });
+
+            await interaction.reply({
+                content: `Ton ticket a été créé : ${ticketChannel}`,
+                ephemeral: true
+            });
+        }
+
+        // --- FERMETURE DU TICKET ---
+        if (customId === "close_ticket") {
+            await interaction.channel.delete().catch(console.error);
+        }
+
+        // --- BOUTON DÉBANNIR ---
+        if (customId.startsWith("unban_")) {
+            const userId = customId.split("_")[1];
+            const member = interaction.member;
+
+            if (!member.roles.cache.has(staffRoleId)) {
                 return interaction.reply({
-                    content: `⏳ Tu as déjà ouvert un ticket récemment. Tu pourras en rouvrir un dans **${remaining} minutes**.`,
+                    content: "❌ Tu n’as pas la permission d’utiliser ce bouton.",
+                    ephemeral: true
+                });
+            }
+
+            try {
+                await interaction.guild.members.unban(userId);
+                await interaction.reply({
+                    content: `✅ L’utilisateur <@${userId}> a été débanni.`,
+                    ephemeral: true
+                });
+            } catch {
+                await interaction.reply({
+                    content: `⚠️ Impossible de débannir l’utilisateur <@${userId}>.`,
                     ephemeral: true
                 });
             }
         }
 
-        ticketCooldown.set(userId, now);
+        // --- BOUTON INVITATION ---
+        if (customId.startsWith("invite_")) {
+            const userId = customId.split("_")[1];
+            const member = interaction.member;
 
-        const guild = interaction.guild;
+            if (!member.roles.cache.has(staffRoleId)) {
+                return interaction.reply({
+                    content: "❌ Tu n’as pas la permission d’utiliser ce bouton.",
+                    ephemeral: true
+                });
+            }
 
-        const ticketChannel = await guild.channels.create({
-            name: `ticket-${interaction.user.username}`,
-            type: 0,
-            permissionOverwrites: [
-                {
-                    id: guild.id,
-                    deny: [PermissionsBitField.Flags.ViewChannel]
-                },
-                {
-                    id: interaction.user.id,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.SendMessages,
-                        PermissionsBitField.Flags.ReadMessageHistory
-                    ]
-                },
-                {
-                    id: staffRoleId,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.SendMessages,
-                        PermissionsBitField.Flags.ReadMessageHistory
-                    ]
-                }
-            ]
-        });
+            try {
+                const guild = interaction.guild;
+                const channel = await guild.channels.fetch(channelId);
+                const invite = await channel.createInvite({
+                    maxUses: 1,
+                    maxAge: 60 * 60,
+                    unique: true
+                });
 
-        const adminUser = await client.users.fetch(adminId);
-        adminUser.send(`${interaction.user.username} a ouvert un ticket.`).catch(() => {});
+                const user = await client.users.fetch(userId);
+                await user.send({
+                    content: `🔓 Tu as reçu une nouvelle invitation pour rejoindre **${guild.name}** : ${invite.url}`
+                });
 
-        const closeRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId("close_ticket")
-                .setLabel("🔒 Fermer le ticket")
-                .setStyle(ButtonStyle.Danger)
-        );
-
-        await ticketChannel.send({
-            content: `🎟️ **Ticket ouvert !**\nBonjour ${interaction.user}, merci d’avoir ouvert un ticket.\nExplique ton problème ici, un membre du staff te répondra rapidement.`,
-            components: [closeRow]
-        });
-
-        await interaction.reply({
-            content: `Ton ticket a été créé : ${ticketChannel}`,
-            ephemeral: true
-        });
-    }
-
-    // --- FERMETURE DU TICKET ---
-    if (interaction.customId === "close_ticket") {
-        await interaction.channel.delete().catch(console.error);
+                await interaction.reply({
+                    content: `✅ Invitation envoyée en DM à <@${userId}>.`,
+                    ephemeral: true
+                });
+            } catch {
+                await interaction.reply({
+                    content: `⚠️ Impossible d’envoyer une invitation à <@${userId}>.`,
+                    ephemeral: true
+                });
+            }
+        }
     }
 });
 
@@ -260,17 +320,14 @@ client.on("messageCreate", async (message) => {
 
     if (!hasBasic && !hasPattern) return;
 
-    // CENSURE : chaque mot interdit devient ***
     let censoredContent = originalContent;
     for (const word of bannedWords) {
         const regex = new RegExp(word, "gi");
         censoredContent = censoredContent.replace(regex, "***");
     }
 
-    // SUPPRIMER le message original
     await message.delete().catch(() => {});
 
-    // REPUBLIER la version censurée
     await message.channel.send(`💬 **Message censuré de ${message.author}:**\n${censoredContent}`);
 
     const userId = message.author.id;
@@ -280,7 +337,6 @@ client.on("messageCreate", async (message) => {
     const newCount = current + 1;
     warnings.set(userId, newCount);
 
-    // DM stylé d'avertissement
     try {
         await message.author.send({
             embeds: [
@@ -309,7 +365,6 @@ client.on("messageCreate", async (message) => {
         console.log("Impossible d'envoyer un DM à l'utilisateur.");
     }
 
-    // SANCTION AUTOMATIQUE
     if (newCount >= MAX_WARNINGS) {
         const logChannel = guild.channels.cache.get(logChannelId);
 
@@ -327,7 +382,24 @@ client.on("messageCreate", async (message) => {
             });
         } catch {}
 
+        try {
+            await guild.members.ban(userId, { reason: "Trop d'avertissements automatiques (gros mots)" });
+        } catch {
+            console.log("Impossible de bannir l'utilisateur.");
+        }
+
         if (logChannel) {
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`unban_${userId}`)
+                    .setLabel("🔓 Débannir")
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`invite_${userId}`)
+                    .setLabel("✉️ Envoyer une invitation")
+                    .setStyle(ButtonStyle.Primary)
+            );
+
             logChannel.send({
                 embeds: [
                     {
@@ -336,11 +408,9 @@ client.on("messageCreate", async (message) => {
                         color: 0xff0000,
                         timestamp: new Date().toISOString()
                     }
-                ]
+                ],
+                components: [row]
             }).catch(() => {});
         }
-
-        guild.members.ban(userId, { reason: "Trop d'avertissements automatiques (gros mots)" })
-            .catch(() => console.log("Impossible de bannir l'utilisateur."));
     }
 });
