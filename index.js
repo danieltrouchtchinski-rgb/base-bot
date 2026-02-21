@@ -59,7 +59,7 @@ client.on("ready", async () => {
     // Message de réaction 👍
     const channel = await client.channels.fetch(channelId);
     const msg = await channel.send(
-        "Bienvenue sur le serveur. Pour confirmer votre arrivée et obtenir votre rôle d’accès, veuillez cliquer sur l’emoji 👍 ci‑dessous."
+        "Bienvenue sur le serveur. Pour continuer veuillez cliquer sur l’emoji "👍" ci‑dessous."
     );
     await msg.react(emoji);
 
