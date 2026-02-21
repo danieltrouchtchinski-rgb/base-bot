@@ -8,16 +8,10 @@ const {
     PermissionsBitField
 } = require("discord.js");
 
-//  ANTI‑CRASH (à mettre ici)
-process.on("unhandledRejection", (reason, p) => {
-    console.error("Unhandled Rejection:", reason);
-});
-process.on("uncaughtException", (err) => {
-    console.error("Uncaught Exception:", err);
-});
-process.on("uncaughtExceptionMonitor", (err) => {
-    console.error("Uncaught Exception Monitor:", err);
-});
+//  ANTI‑CRASH
+process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:", reason));
+process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
+process.on("uncaughtExceptionMonitor", (err) => console.error("Uncaught Exception Monitor:", err));
 
 const client = new Client({
     intents: [
@@ -30,9 +24,7 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// ⚠️ Mets ton NOUVEAU token ici (régénère-le !)
-client.login(process.env.TOKEN)
-
+client.login(process.env.TOKEN);
 
 // -----------------------------
 // CONFIG RÉACTION 👍
@@ -48,6 +40,14 @@ const emoji = "👍";
 
 const supportChannelId = "1472545749576192010"; // Salon support
 const staffRoleId = "1472545876189905037"; // Rôle staff
+const adminId = "1238123426959462432"; // Admin à notifier
+
+// -----------------------------
+// COOLDOWN TICKETS
+// -----------------------------
+
+const ticketCooldown = new Map(); // userId -> timestamp
+const COOLDOWN_TIME = 60 * 60 * 1000; // 1 heure
 
 // -----------------------------
 // BOT READY
@@ -59,7 +59,7 @@ client.on("ready", async () => {
     // Message de réaction 👍
     const channel = await client.channels.fetch(channelId);
     const msg = await channel.send(
-        "Bienvenue sur le serveur. Pour confirmer votre arrivée et obtenir votre rôle d’accès, veuillez simplement cliquer sur l’emoji 👍 ci‑dessous."
+        "Bienvenue sur le serveur. Pour confirmer votre arrivée et obtenir votre rôle d’accès, veuillez cliquer sur l’emoji 👍 ci‑dessous."
     );
     await msg.react(emoji);
 
@@ -107,43 +107,61 @@ client.on("interactionCreate", async interaction => {
     if (!interaction.isButton()) return;
 
     // --- OUVERTURE DU TICKET ---
-   // --- OUVERTURE DU TICKET ---
-if (interaction.customId === "open_ticket") {
-    const guild = interaction.guild;
+    if (interaction.customId === "open_ticket") {
+        const userId = interaction.user.id;
+        const now = Date.now();
 
-    const ticketChannel = await guild.channels.create({
-        name: `ticket-${interaction.user.username}`,
-        type: 0,
-        permissionOverwrites: [
-            {
-                id: guild.id,
-                deny: [PermissionsBitField.Flags.ViewChannel]
-            },
-            {
-                id: interaction.user.id,
-                allow: [
-                    PermissionsBitField.Flags.ViewChannel,
-                    PermissionsBitField.Flags.SendMessages,
-                    PermissionsBitField.Flags.ReadMessageHistory
-                ]
-            },
-            {
-                id: staffRoleId,
-                allow: [
-                    PermissionsBitField.Flags.ViewChannel,
-                    PermissionsBitField.Flags.SendMessages,
-                    PermissionsBitField.Flags.ReadMessageHistory
-                ]
+        // Vérification du cooldown
+        if (ticketCooldown.has(userId)) {
+            const lastTime = ticketCooldown.get(userId);
+            const timePassed = now - lastTime;
+
+            if (timePassed < COOLDOWN_TIME) {
+                const remaining = Math.ceil((COOLDOWN_TIME - timePassed) / 60000);
+
+                return interaction.reply({
+                    content: `⏳ Tu as déjà ouvert un ticket récemment. Tu pourras en rouvrir un dans **${remaining} minutes**.`,
+                    ephemeral: true
+                });
             }
-        ]
-    });
+        }
 
-    // 🔔 NOTIFICATION PRIVÉE À TON COMPTE ADMIN
-    const adminId = "1238123426959462432"; 
-    const adminUser = await client.users.fetch(adminId);
-    adminUser.send(`${interaction.user.username} a ouvert un ticket.`);
+        // Mise à jour du cooldown
+        ticketCooldown.set(userId, now);
 
-    
+        const guild = interaction.guild;
+
+        const ticketChannel = await guild.channels.create({
+            name: `ticket-${interaction.user.username}`,
+            type: 0,
+            permissionOverwrites: [
+                {
+                    id: guild.id,
+                    deny: [PermissionsBitField.Flags.ViewChannel]
+                },
+                {
+                    id: interaction.user.id,
+                    allow: [
+                        PermissionsBitField.Flags.ViewChannel,
+                        PermissionsBitField.Flags.SendMessages,
+                        PermissionsBitField.Flags.ReadMessageHistory
+                    ]
+                },
+                {
+                    id: staffRoleId,
+                    allow: [
+                        PermissionsBitField.Flags.ViewChannel,
+                        PermissionsBitField.Flags.SendMessages,
+                        PermissionsBitField.Flags.ReadMessageHistory
+                    ]
+                }
+            ]
+        });
+
+        // 🔔 NOTIFICATION PRIVÉE À L’ADMIN
+        const adminUser = await client.users.fetch(adminId);
+        adminUser.send(`${interaction.user.username} a ouvert un ticket.`);
+
         const closeRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId("close_ticket")
