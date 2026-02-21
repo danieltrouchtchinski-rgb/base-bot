@@ -50,6 +50,65 @@ const ticketCooldown = new Map(); // userId -> timestamp
 const COOLDOWN_TIME = 60 * 60 * 1000; // 1 heure
 
 // -----------------------------
+// MODÉRATION : GROS MOTS & AVERTISSEMENTS
+// -----------------------------
+
+// Liste de base (pour la censure dans le message)
+const bannedWords = [
+    "pute",
+    "fdp",
+    "ntm",
+    "merde",
+    "enculé",
+    "salope"
+];
+
+// Motifs stricts (détectent variantes, espaces, symboles, chiffres, etc.)
+const bannedPatterns = [
+    /p[\W_0-9]*u[\W_0-9]*t[\W_0-9]*e/i,
+    /f[\W_0-9]*d[\W_0-9]*p/i,
+    /n[\W_0-9]*t[\W_0-9]*m/i,
+    /m[\W_0-9]*e[\W_0-9]*r[\W_0-9]*d[\W_0-9]*e?/i,
+    /e[\W_0-9]*n[\W_0-9]*c[\W_0-9]*u[\W_0-9]*l[\W_0-9]*[eé]/i,
+    /s[\W_0-9]*a[\W_0-9]*l[\W_0-9]*o[\W_0-9]*p[\W_0-9]*e/i
+];
+
+// userId -> nombre d'avertissements
+const warnings = new Map();
+const MAX_WARNINGS = 3;
+
+// Salon de logs pour le staff
+const logChannelId = "1474819277092552724";
+
+// Normalisation stricte pour la détection (leet, accents, symboles)
+function normalizeForFilter(text) {
+    let t = text.toLowerCase();
+
+    const leetMap = {
+        "0": "o",
+        "1": "i",
+        "3": "e",
+        "4": "a",
+        "5": "s",
+        "7": "t",
+        "@": "a",
+        "€": "e",
+        "$": "s",
+        "µ": "u"
+    };
+
+    t = t
+        .split("")
+        .map(ch => leetMap[ch] || ch)
+        .join("");
+
+    // enlever tout ce qui n'est pas lettre
+    t = t.replace(/[^a-zàâäéèêëîïôöùûüç]/g, "");
+
+    return t;
+}
+
+// -----------------------------
 // BOT READY
 // -----------------------------
 
@@ -59,7 +118,7 @@ client.on("ready", async () => {
     // Message de réaction 👍
     const channel = await client.channels.fetch(channelId);
     const msg = await channel.send(
-        "Bienvenue sur le serveur. Pour continuer veuillez cliquer sur l’emoji "👍" ci‑dessous."
+        "Bienvenue sur le serveur. Pour confirmer continuer veuillez cliquer sur l’emoji 👍 ci‑dessous."
     );
     await msg.react(emoji);
 
@@ -160,7 +219,7 @@ client.on("interactionCreate", async interaction => {
 
         // 🔔 NOTIFICATION PRIVÉE À L’ADMIN
         const adminUser = await client.users.fetch(adminId);
-        adminUser.send(`${interaction.user.username} a ouvert un ticket.`);
+        adminUser.send(`${interaction.user.username} a ouvert un ticket.`).catch(() => {});
 
         const closeRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -182,6 +241,113 @@ client.on("interactionCreate", async interaction => {
 
     // --- FERMETURE DU TICKET ---
     if (interaction.customId === "close_ticket") {
-        await interaction.channel.delete();
+        await interaction.channel.delete().catch(console.error);
+    }
+});
+
+// -----------------------------
+// MODÉRATION AUTOMATIQUE : GROS MOTS (STRICTE)
+// -----------------------------
+
+client.on("messageCreate", async (message) => {
+    if (message.author.bot) return;
+    if (!message.guild) return;
+
+    const originalContent = message.content;
+    if (!originalContent) return;
+
+    const normalized = normalizeForFilter(originalContent);
+    const lower = originalContent.toLowerCase();
+
+    const hasBasic = bannedWords.some(word => normalized.includes(word));
+    const hasPattern = bannedPatterns.some(pattern => pattern.test(lower) || pattern.test(normalized));
+
+    if (!hasBasic && !hasPattern) return;
+
+    // Censure : chaque mot interdit devient ***
+    let censoredContent = originalContent;
+    for (const word of bannedWords) {
+        const regex = new RegExp(word, "gi");
+        censoredContent = censoredContent.replace(regex, "***");
+    }
+
+    // Édite le message avec la version censurée
+    if (censoredContent !== originalContent) {
+        message.edit(censoredContent).catch(() => {});
+    }
+
+    const userId = message.author.id;
+    const guild = message.guild;
+
+    // Incrémente les avertissements
+    const current = warnings.get(userId) || 0;
+    const newCount = current + 1;
+    warnings.set(userId, newCount);
+
+    // DM stylé d'avertissement
+    try {
+        await message.author.send({
+            embeds: [
+                {
+                    title: "⚠️ Avertissement reçu",
+                    description: `Ton message dans **${guild.name}** contenait un mot interdit.\n\n**Avertissement : ${newCount} / ${MAX_WARNINGS}**`,
+                    color: 0xffa500,
+                    fields: [
+                        {
+                            name: "Message censuré",
+                            value: censoredContent ? `\`${censoredContent}\`` : "*Message vide ou non lisible*"
+                        },
+                        {
+                            name: "Rappel",
+                            value: "Merci de rester respectueux pour éviter d'autres avertissements."
+                        }
+                    ],
+                    footer: {
+                        text: "Système automatique de modération"
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            ]
+        });
+    } catch (err) {
+        console.log("Impossible d'envoyer un DM à l'utilisateur.");
+    }
+
+    // Si 3 avertissements → sanction
+    if (newCount >= MAX_WARNINGS) {
+        const logChannel = guild.channels.cache.get(logChannelId);
+
+        // DM final
+        try {
+            await message.author.send({
+                embeds: [
+                    {
+                        title: "🚫 Action disciplinaire",
+                        description: `Tu as atteint **${MAX_WARNINGS} avertissements** sur le serveur **${guild.name}**.`,
+                        color: 0xff0000,
+                        footer: { text: "Modération automatique" },
+                        timestamp: new Date().toISOString()
+                    }
+                ]
+            });
+        } catch {}
+
+        // Message au staff
+        if (logChannel) {
+            logChannel.send({
+                embeds: [
+                    {
+                        title: "🔨 Sanction appliquée",
+                        description: `${message.author} a atteint **${MAX_WARNINGS} avertissements** et a été banni automatiquement.`,
+                        color: 0xff0000,
+                        timestamp: new Date().toISOString()
+                    }
+                ]
+            }).catch(() => {});
+        }
+
+        // Exclusion du serveur
+        guild.members.ban(userId, { reason: "Trop d'avertissements automatiques (gros mots)" })
+            .catch(() => console.log("Impossible de bannir l'utilisateur."));
     }
 });
